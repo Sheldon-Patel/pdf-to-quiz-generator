@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PDF ➜ Quiz | No-LLM Demo</title>
+  <meta name="description" content="Convert any PDF into a quiz instantly using NLP – no AI, no LLM, just smart text processing." />
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- PDF.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+  <!-- compromise.js – lightweight NLP (NO LLM, just rules + patterns) -->
+  <script src="https://unpkg.com/compromise@14.10.0/builds/compromise.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d0f16;
+      --surface: #161923;
+      --card: #1e2330;
+      --border: #2c3248;
+      --accent: #6c63ff;
+      --accent2: #ff63b0;
+      --accent3: #63d8ff;
+      --text: #eef0f8;
+      --muted: #7b82a0;
+      --success: #4ade80;
+      --danger: #f87171;
+      --radius: 16px;
+      --radius-sm: 10px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Background orbs ── */
+    .bg-orb {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(120px);
+      opacity: 0.15;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .orb1 { width: 600px; height: 600px; background: var(--accent);  top: -200px; left: -150px; }
+    .orb2 { width: 500px; height: 500px; background: var(--accent2); bottom: -150px; right: -100px; }
+    .orb3 { width: 400px; height: 400px; background: var(--accent3); top: 40%; left: 50%; }
+
+    /* ── Layout ── */
+    .container {
+      position: relative;
+      z-index: 1;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 40px 24px 80px;
+    }
+
+    /* ── Header ── */
+    header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 6px 16px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(108,99,255,0.1);
+      color: var(--accent3);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+    }
+    h1 {
+      font-size: clamp(2rem, 5vw, 3.2rem);
+      font-weight: 800;
+      line-height: 1.1;
+      background: linear-gradient(135deg, #fff 30%, var(--accent) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 16px;
+    }
+    header p {
+      color: var(--muted);
+      font-size: 1.05rem;
+      max-width: 520px;
+      margin: 0 auto;
+      line-height: 1.7;
+    }
+
+    /* ── How it works ── */
+    .how-it-works {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 40px;
+    }
+    .step-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      text-align: center;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+    .step-card:hover { transform: translateY(-4px); border-color: var(--accent); }
+    .step-icon { font-size: 2rem; margin-bottom: 10px; }
+    .step-card h3 { font-size: 0.85rem; font-weight: 700; color: var(--text); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .step-card p { font-size: 0.8rem; color: var(--muted); line-height: 1.5; }
+
+    /* ── Upload zone ── */
+    .upload-zone {
+      background: var(--card);
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 60px 40px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.25s, background 0.25s;
+      position: relative;
+      overflow: hidden;
+      margin-bottom: 28px;
+    }
+    .upload-zone:hover, .upload-zone.drag-over {
+      border-color: var(--accent);
+      background: rgba(108,99,255,0.05);
+    }
+    .upload-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+    .upload-icon { font-size: 3rem; margin-bottom: 16px; }
+    .upload-zone h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 8px; }
+    .upload-zone p { color: var(--muted); font-size: 0.88rem; }
+
+    /* ── Controls row ── */
+    .controls {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      margin-bottom: 28px;
+    }
+    .form-group { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 160px; }
+    .form-group label { font-size: 0.82rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+    select, input[type="range"] {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      padding: 10px 14px;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color 0.2s;
+      cursor: pointer;
+      appearance: none;
+    }
+    select:focus, select:hover { border-color: var(--accent); }
+    .range-value { color: var(--accent3); font-weight: 700; font-size: 0.9rem; }
+
+    /* ── Generate button ── */
+    .btn-generate {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff;
+      border: none;
+      border-radius: var(--radius-sm);
+      padding: 12px 32px;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.15s, opacity 0.2s;
+      box-shadow: 0 4px 24px rgba(108,99,255,0.4);
+      white-space: nowrap;
+      align-self: flex-end;
+    }
+    .btn-generate:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(108,99,255,0.55); }
+    .btn-generate:active:not(:disabled) { transform: translateY(0); }
+    .btn-generate:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── Progress ── */
+    .progress-bar {
+      height: 4px;
+      background: var(--border);
+      border-radius: 999px;
+      overflow: hidden;
+      margin-bottom: 28px;
+      display: none;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      border-radius: 999px;
+      width: 0%;
+      transition: width 0.4s ease;
+    }
+
+    /* ── Status log ── */
+    .status-log {
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-bottom: 20px;
+      padding: 0 4px;
+      min-height: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Stats bar ── */
+    .stats-bar {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      margin-bottom: 32px;
+      display: none;
+    }
+    .stat-chip {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 6px 16px;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+    .stat-chip span { color: var(--text); font-weight: 700; }
+
+    /* ── Quiz section ── */
+    #quizSection { display: none; }
+    #quizSection h2 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .question-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px 28px 24px;
+      margin-bottom: 20px;
+      transition: border-color 0.2s;
+      animation: fadeUp 0.35s ease both;
+    }
+    .question-card.answered { border-color: var(--border); }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+
+    .q-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+    .q-number {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff;
+      border-radius: 8px;
+      width: 34px;
+      height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.82rem;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+    .q-type-badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 8px;
+    }
+    .badge-mcq   { background: rgba(108,99,255,0.18); color: var(--accent); }
+    .badge-tf    { background: rgba(99,216,255,0.15); color: var(--accent3); }
+    .badge-fitb  { background: rgba(255,99,176,0.15); color: var(--accent2); }
+
+    .q-text { font-size: 1rem; font-weight: 500; line-height: 1.6; }
+    .q-blank { display: inline-block; min-width: 100px; border-bottom: 2px solid var(--accent2); color: transparent; background: rgba(255,99,176,0.08); border-radius: 4px; padding: 0 8px; }
+
+    /* Options */
+    .options { display: flex; flex-direction: column; gap: 10px; }
+    .option-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 18px;
+      text-align: left;
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      font-size: 0.92rem;
+      cursor: pointer;
+      transition: border-color 0.18s, background 0.18s, transform 0.12s;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .option-btn:hover:not(:disabled) { border-color: var(--accent); background: rgba(108,99,255,0.07); transform: translateX(4px); }
+    .option-btn:disabled { cursor: default; }
+    .option-btn.correct { border-color: var(--success); background: rgba(74,222,128,0.1); }
+    .option-btn.wrong   { border-color: var(--danger);  background: rgba(248,113,113,0.1); }
+    .opt-letter {
+      width: 26px;
+      height: 26px;
+      border-radius: 6px;
+      background: var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+    .option-btn.correct .opt-letter { background: var(--success); color: #000; }
+    .option-btn.wrong   .opt-letter { background: var(--danger);  color: #000; }
+
+    /* Feedback */
+    .feedback {
+      margin-top: 14px;
+      padding: 12px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 0.86rem;
+      line-height: 1.5;
+      display: none;
+    }
+    .feedback.correct { background: rgba(74,222,128,0.1);  border: 1px solid rgba(74,222,128,0.3);  color: #86efac; }
+    .feedback.wrong   { background: rgba(248,113,113,0.1); border: 1px solid rgba(248,113,113,0.3); color: #fca5a5; }
+
+    /* FITB input */
+    .fitb-row { display: flex; gap: 10px; margin-top: 12px; }
+    .fitb-input {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      font-size: 0.92rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .fitb-input:focus { border-color: var(--accent2); }
+    .fitb-input:disabled { opacity: 0.6; cursor: default; }
+    .btn-check {
+      background: var(--accent2);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius-sm);
+      padding: 10px 20px;
+      font-family: 'Inter', sans-serif;
+      font-weight: 700;
+      font-size: 0.88rem;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.12s;
+    }
+    .btn-check:hover:not(:disabled) { opacity: 0.85; transform: scale(1.03); }
+    .btn-check:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* Score card */
+    .score-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 40px;
+      text-align: center;
+      margin-top: 32px;
+      display: none;
+      animation: fadeUp 0.4s ease;
+    }
+    .score-circle {
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      border: 4px solid;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      margin: 0 auto 20px;
+    }
+    .score-circle.great  { border-color: var(--success); }
+    .score-circle.ok     { border-color: #facc15; }
+    .score-circle.poor   { border-color: var(--danger); }
+    .score-num { font-size: 1.8rem; font-weight: 800; }
+    .score-label { font-size: 0.7rem; color: var(--muted); }
+    .score-card h3 { font-size: 1.3rem; font-weight: 700; margin-bottom: 8px; }
+    .score-card p { color: var(--muted); font-size: 0.9rem; }
+
+    .btn-restart {
+      margin-top: 24px;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 28px;
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      font-weight: 600;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: border-color 0.18s, background 0.18s;
+    }
+    .btn-restart:hover { border-color: var(--accent); background: rgba(108,99,255,0.08); }
+
+    /* ── Footer ── */
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.78rem;
+      margin-top: 60px;
+      padding-bottom: 20px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      .controls { flex-direction: column; }
+      .upload-zone { padding: 40px 24px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Background decoration -->
+  <div class="bg-orb orb1"></div>
+  <div class="bg-orb orb2"></div>
+  <div class="bg-orb orb3"></div>
+
+  <div class="container">
+
+    <!-- Header -->
+    <header>
+      <div class="badge">🏆 Hackathon Demo · No LLM Required</div>
+      <h1>PDF → Quiz Generator</h1>
+      <p>Upload any PDF and we instantly generate quiz questions using <strong>classic NLP</strong> — TF-IDF scoring, named-entity recognition &amp; sentence analysis. Zero AI, 100% clever code.</p>
+    </header>
+
+    <!-- How it works steps -->
+    <div class="how-it-works">
+      <div class="step-card">
+        <div class="step-icon">📄</div>
+        <h3>Step 1 · Extract</h3>
+        <p>PDF.js reads your file and pulls out raw text, sentence by sentence.</p>
+      </div>
+      <div class="step-card">
+        <div class="step-icon">🔢</div>
+        <h3>Step 2 · TF-IDF</h3>
+        <p>Term Frequency × Inverse Document Frequency ranks the most important sentences.</p>
+      </div>
+      <div class="step-card">
+        <div class="step-icon">🧠</div>
+        <h3>Step 3 · NLP</h3>
+        <p>compromise.js finds nouns, entities &amp; verbs to craft fill-in-the-blank &amp; MCQ questions.</p>
+      </div>
+      <div class="step-card">
+        <div class="step-icon">❓</div>
+        <h3>Step 4 · Quiz</h3>
+        <p>Questions are shuffled and presented with instant scoring and feedback.</p>
+      </div>
+    </div>
+
+    <!-- Upload -->
+    <div class="upload-zone" id="uploadZone">
+      <input type="file" id="pdfInput" accept=".pdf" />
+      <div class="upload-icon">📁</div>
+      <h2 id="uploadTitle">Drop your PDF here, or click to browse</h2>
+      <p id="uploadSub">Supports any text-based PDF · Max size 20 MB</p>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <div class="form-group">
+        <label>Question Count</label>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <input type="range" id="qCount" min="3" max="15" value="7" style="flex:1;" />
+          <span class="range-value" id="qCountVal">7</span>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Question Types</label>
+        <select id="qTypes">
+          <option value="all">All Types (MCQ + T/F + Fill-in)</option>
+          <option value="mcq">Multiple Choice Only</option>
+          <option value="tf">True / False Only</option>
+          <option value="fitb">Fill in the Blank Only</option>
+        </select>
+      </div>
+      <button class="btn-generate" id="generateBtn" disabled onclick="generateQuiz()">
+        ✨ Generate Quiz
+      </button>
+    </div>
+
+    <!-- Progress -->
+    <div class="progress-bar" id="progressBar">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+    <div class="status-log" id="statusLog">
+      <div class="spinner" id="spinner"></div>
+      <span id="statusText">Upload a PDF to get started.</span>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-bar" id="statsBar">
+      <div class="stat-chip">Pages: <span id="statPages">-</span></div>
+      <div class="stat-chip">Sentences: <span id="statSentences">-</span></div>
+      <div class="stat-chip">Unique Words: <span id="statWords">-</span></div>
+      <div class="stat-chip">Key Sentences: <span id="statKey">-</span></div>
+    </div>
+
+    <!-- Quiz Output -->
+    <div id="quizSection">
+      <h2>📝 <span id="quizTitle">Your Quiz</span></h2>
+      <div id="questionsContainer"></div>
+      <div class="score-card" id="scoreCard">
+        <div class="score-circle" id="scoreCircle">
+          <span class="score-num" id="scoreNum">-</span>
+          <span class="score-label">SCORE</span>
+        </div>
+        <h3 id="scoreHeading"></h3>
+        <p id="scoreMsg"></p>
+        <button class="btn-restart" onclick="restartQuiz()">↩ Try Again / New PDF</button>
+      </div>
+    </div>
+
+  </div>
+
+  <footer>
+    Built for Hackathon · PDF → Quiz · No LLM · Powered by PDF.js + compromise.js + TF-IDF
+  </footer>
+
+<script>
+// ══════════════════════════════════════════════════════════════════════
+//  GLOBALS
+// ══════════════════════════════════════════════════════════════════════
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+let extractedText = '';
+let allSentences  = [];
+let quizQuestions = [];
+let answeredCount = 0;
+let correctCount  = 0;
+
+// ══════════════════════════════════════════════════════════════════════
+//  UI HELPERS
+// ══════════════════════════════════════════════════════════════════════
+const $ = id => document.getElementById(id);
+
+function setStatus(msg, loading = false) {
+  $('statusText').textContent = msg;
+  $('spinner').style.display  = loading ? 'block' : 'none';
+}
+
+function setProgress(p) {
+  $('progressBar').style.display = 'block';
+  $('progressFill').style.width  = p + '%';
+  if (p >= 100) setTimeout(() => $('progressBar').style.display = 'none', 600);
+}
+
+// Range label
+$('qCount').addEventListener('input', () => {
+  $('qCountVal').textContent = $('qCount').value;
+});
+
+// Drag-over styles
+const zone = $('uploadZone');
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+zone.addEventListener('dragleave',  () => zone.classList.remove('drag-over'));
+zone.addEventListener('drop', e => {
+  e.preventDefault();
+  zone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file && file.type === 'application/pdf') handleFile(file);
+});
+
+// File input change
+$('pdfInput').addEventListener('change', e => {
+  if (e.target.files[0]) handleFile(e.target.files[0]);
+});
+
+// ══════════════════════════════════════════════════════════════════════
+//  STEP 1 — PDF EXTRACTION
+// ══════════════════════════════════════════════════════════════════════
+async function handleFile(file) {
+  setStatus(`Reading "${file.name}"…`, true);
+  setProgress(10);
+  $('generateBtn').disabled = true;
+  $('quizSection').style.display = 'none';
+  $('statsBar').style.display    = 'none';
+
+  $('uploadTitle').textContent = `✅ ${file.name}`;
+  $('uploadSub').textContent   = `${(file.size / 1024).toFixed(1)} KB · ready to generate`;
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    setProgress(30);
+    setStatus(`Extracting text from ${pdf.numPages} page(s)…`, true);
+
+    let fullText = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page    = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      const pageStr = content.items.map(s => s.str).join(' ');
+      fullText += pageStr + ' ';
+      setProgress(30 + Math.round((i / pdf.numPages) * 30));
+    }
+
+    extractedText = cleanText(fullText);
+    allSentences  = tokenizeSentences(extractedText);
+
+    // Update stats
+    const uniqueWords = new Set(tokenizeWords(extractedText)).size;
+    $('statPages').textContent    = pdf.numPages;
+    $('statSentences').textContent = allSentences.length;
+    $('statWords').textContent    = uniqueWords;
+    $('statKey').textContent      = '—';
+    $('statsBar').style.display   = 'flex';
+
+    setProgress(60);
+    setStatus(`✅ Extracted ${allSentences.length} sentences from ${pdf.numPages} page(s). Ready!`, false);
+    $('generateBtn').disabled = false;
+
+  } catch (err) {
+    setStatus('❌ Failed to read PDF. Make sure it is text-based (not a scanned image).', false);
+    console.error(err);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  TEXT UTILITIES
+// ══════════════════════════════════════════════════════════════════════
+function cleanText(text) {
+  return text
+    .replace(/\s+/g, ' ')
+    .replace(/[^\w\s.,!?;:'"-]/g, ' ')
+    .trim();
+}
+
+function tokenizeSentences(text) {
+  // Split on sentence-ending punctuation
+  const raw = text.match(/[^.!?]+[.!?]+/g) || [text];
+  return raw
+    .map(s => s.trim())
+    .filter(s => {
+      const words = s.split(/\s+/);
+      return words.length >= 6 && words.length <= 60; // reasonable sentence length
+    });
+}
+
+function tokenizeWords(text) {
+  return text.toLowerCase().match(/\b[a-z]{3,}\b/g) || [];
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  STEP 2 — TF-IDF: rank sentences by importance
+// ══════════════════════════════════════════════════════════════════════
+const STOP_WORDS = new Set([
+  'the','a','an','and','or','but','in','on','at','to','for','of',
+  'with','by','from','is','was','are','were','be','been','being',
+  'have','has','had','do','does','did','will','would','could','should',
+  'may','might','can','this','that','these','those','it','its',
+  'they','their','we','our','you','your','he','she','his','her',
+  'which','who','whom','what','when','where','how','also','such',
+  'each','all','more','most','other','than','then','so','if','as',
+  'not','no','nor','while','although','though','since','because'
+]);
+
+function computeTFIDF(sentences) {
+  // Build word frequencies per sentence + doc-level
+  const tf   = sentences.map(s => {
+    const words = tokenizeWords(s).filter(w => !STOP_WORDS.has(w));
+    const freq  = {};
+    words.forEach(w => freq[w] = (freq[w] || 0) + 1);
+    const total = words.length || 1;
+    Object.keys(freq).forEach(w => freq[w] /= total);
+    return freq;
+  });
+
+  // Document frequency
+  const df = {};
+  tf.forEach(freq => Object.keys(freq).forEach(w => df[w] = (df[w] || 0) + 1));
+  const N  = sentences.length || 1;
+
+  // Score each sentence: sum of tf-idf for non-stop words
+  return sentences.map((s, i) => {
+    const words = tokenizeWords(s).filter(w => !STOP_WORDS.has(w));
+    const score = words.reduce((acc, w) => {
+      const tfidf = (tf[i][w] || 0) * Math.log(N / ((df[w] || 1)));
+      return acc + tfidf;
+    }, 0) / (words.length || 1);
+    return { sentence: s, score, index: i };
+  });
+}
+
+function getTopSentences(n) {
+  const scored  = computeTFIDF(allSentences);
+  const sorted  = [...scored].sort((a, b) => b.score - a.score);
+  $('statKey').textContent = Math.min(n * 3, sorted.length);
+  // Return top n*3 to have variety, then pick
+  return sorted.slice(0, n * 3);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  STEP 3 — QUESTION GENERATORS
+// ══════════════════════════════════════════════════════════════════════
+
+// ── 3a. Fill-in-the-Blank
+function makeFITB(sentenceObj) {
+  const doc    = nlp(sentenceObj.sentence);
+  // Prefer proper nouns, then nouns, then adjectives
+  let targets  = doc.match('#ProperNoun+').out('array');
+  if (!targets.length) targets = doc.nouns().out('array');
+  if (!targets.length) targets = doc.adjectives().out('array');
+
+  // Pick the longest target (most meaningful)
+  const target = targets
+    .filter(t => t.length > 3 && !STOP_WORDS.has(t.toLowerCase()))
+    .sort((a, b) => b.length - a.length)[0];
+
+  if (!target) return null;
+
+  const blank    = '___________';
+  const question = sentenceObj.sentence.replace(target, blank);
+
+  // Distractors: similar-length words from the doc that aren't the answer
+  const allNouns  = doc.nouns().out('array').filter(n => n !== target && n.length > 3);
+  const distractors = shuffleArr(allNouns).slice(0, 3);
+
+  return {
+    type: 'fitb',
+    question,
+    answer: target.toLowerCase().trim(),
+    originalSentence: sentenceObj.sentence
+  };
+}
+
+// ── 3b. Multiple Choice
+function makeMCQ(sentenceObj, otherSentences) {
+  const doc     = nlp(sentenceObj.sentence);
+  let targets   = doc.match('#ProperNoun+').out('array');
+  if (!targets.length) targets = doc.nouns().out('array');
+  if (!targets.length) targets = doc.adjectives().out('array');
+
+  const answer  = targets
+    .filter(t => t.length > 3 && !STOP_WORDS.has(t.toLowerCase()))
+    .sort((a, b) => b.length - a.length)[0];
+
+  if (!answer) return null;
+
+  // Collect distractors from other sentences
+  let distractors = [];
+  for (const other of shuffleArr(otherSentences)) {
+    if (other.sentence === sentenceObj.sentence) continue;
+    const otherDoc = nlp(other.sentence);
+    const nouns    = otherDoc.nouns().out('array')
+      .filter(n => n.toLowerCase() !== answer.toLowerCase() && n.length > 3 && !STOP_WORDS.has(n.toLowerCase()));
+    distractors.push(...nouns);
+    if (distractors.length >= 5) break;
+  }
+  distractors = [...new Set(distractors)].slice(0, 3);
+  if (distractors.length < 2) return null;
+
+  const blank    = '___________';
+  const question = sentenceObj.sentence.replace(answer, blank);
+  const choices  = shuffleArr([answer, ...distractors]).slice(0, 4);
+  // Ensure answer is in choices
+  if (!choices.includes(answer)) choices[0] = answer;
+
+  return {
+    type: 'mcq',
+    question: `Fill in the blank: ${question}`,
+    choices: shuffleArr(choices),
+    answer: answer.toLowerCase().trim(),
+    originalSentence: sentenceObj.sentence
+  };
+}
+
+// ── 3c. True / False
+function makeTrueFalse(sentenceObj, otherSentences) {
+  // 50/50 — either use the real sentence (true) or swap a key noun (false)
+  const isTrue   = Math.random() > 0.5;
+
+  if (isTrue) {
+    return {
+      type: 'tf',
+      question: `True or False: "${trimSentence(sentenceObj.sentence)}"`,
+      answer: 'true',
+      choices: ['True', 'False'],
+      originalSentence: sentenceObj.sentence
+    };
+  }
+
+  // Make it false by swapping a noun with one from another sentence
+  const doc     = nlp(sentenceObj.sentence);
+  const nouns   = doc.nouns().out('array').filter(n => n.length > 3 && !STOP_WORDS.has(n.toLowerCase()));
+  const target  = nouns[0];
+  if (!target) {
+    // Fallback to true
+    return makeTrueFalse({ ...sentenceObj }, otherSentences);
+  }
+
+  let replacement = '';
+  for (const other of shuffleArr(otherSentences)) {
+    if (other.sentence === sentenceObj.sentence) continue;
+    const otherNouns = nlp(other.sentence).nouns().out('array')
+      .filter(n => n.toLowerCase() !== target.toLowerCase() && n.length > 3 && !STOP_WORDS.has(n.toLowerCase()));
+    if (otherNouns.length) { replacement = otherNouns[0]; break; }
+  }
+  if (!replacement) return { type: 'tf', question: `True or False: "${trimSentence(sentenceObj.sentence)}"`, answer: 'true', choices: ['True', 'False'], originalSentence: sentenceObj.sentence };
+
+  const modifiedSentence = sentenceObj.sentence.replace(target, replacement);
+  return {
+    type: 'tf',
+    question: `True or False: "${trimSentence(modifiedSentence)}"`,
+    answer: 'false',
+    choices: ['True', 'False'],
+    originalSentence: sentenceObj.sentence,
+    explanation: `The correct term is "${target}", not "${replacement}".`
+  };
+}
+
+function trimSentence(s) {
+  return s.length > 120 ? s.slice(0, 117) + '…' : s;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  MAIN: GENERATE QUIZ
+// ══════════════════════════════════════════════════════════════════════
+async function generateQuiz() {
+  if (!allSentences.length) return;
+
+  $('generateBtn').disabled = true;
+  $('quizSection').style.display = 'none';
+  $('scoreCard').style.display   = 'none';
+  answeredCount = 0; correctCount = 0;
+
+  const n     = parseInt($('qCount').value);
+  const type  = $('qTypes').value;
+
+  setStatus('Scoring sentences with TF-IDF…', true);
+  setProgress(20);
+
+  // Small async yield so the UI updates
+  await new Promise(r => setTimeout(r, 30));
+  const topSentences = getTopSentences(n);
+
+  setStatus('Extracting key terms with NLP…', true);
+  setProgress(55);
+  await new Promise(r => setTimeout(r, 30));
+
+  quizQuestions = [];
+  const pool    = shuffleArr(topSentences);
+
+  for (const sentObj of pool) {
+    if (quizQuestions.length >= n) break;
+
+    let q = null;
+    const roll = Math.random();
+
+    if (type === 'mcq')  q = makeMCQ(sentObj, pool);
+    else if (type === 'tf')   q = makeTrueFalse(sentObj, pool);
+    else if (type === 'fitb') q = makeFITB(sentObj);
+    else {
+      // Mixed
+      if      (roll < 0.38) q = makeMCQ(sentObj, pool);
+      else if (roll < 0.68) q = makeTrueFalse(sentObj, pool);
+      else                  q = makeFITB(sentObj);
+    }
+
+    // Fallbacks
+    if (!q && type === 'all') {
+      if (roll >= 0.38) q = makeMCQ(sentObj, pool);
+      if (!q) q = makeTrueFalse(sentObj, pool);
+    }
+
+    if (q) quizQuestions.push(q);
+  }
+
+  setProgress(90);
+  setStatus(`✅ Generated ${quizQuestions.length} questions. Good luck!`, false);
+  setProgress(100);
+
+  renderQuiz();
+  $('generateBtn').disabled = false;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  RENDER QUIZ
+// ══════════════════════════════════════════════════════════════════════
+function renderQuiz() {
+  const container = $('questionsContainer');
+  container.innerHTML = '';
+  $('quizSection').style.display = 'block';
+  $('quizTitle').textContent = `Your Quiz (${quizQuestions.length} Questions)`;
+  $('scoreCard').style.display = 'none';
+
+  quizQuestions.forEach((q, idx) => {
+    const card = document.createElement('div');
+    card.className = 'question-card';
+    card.id = `qcard-${idx}`;
+
+    const typeBadge = q.type === 'mcq' ? 'badge-mcq'
+                    : q.type === 'tf'  ? 'badge-tf'
+                    : 'badge-fitb';
+    const typeLabel  = q.type === 'mcq' ? 'Multiple Choice'
+                    : q.type === 'tf'  ? 'True / False'
+                    : 'Fill in the Blank';
+
+    let body = '';
+    if (q.type === 'mcq' || q.type === 'tf') {
+      const opts = q.choices.map((c, i) => {
+        const letter = ['A','B','C','D'][i];
+        return `<button class="option-btn" id="opt-${idx}-${i}" onclick="checkAnswer(${idx}, '${c.toLowerCase()}', this)">
+          <span class="opt-letter">${letter}</span> ${c}
+        </button>`;
+      }).join('');
+      body = `<div class="options">${opts}</div>`;
+    } else {
+      // FITB
+      body = `<div class="fitb-row">
+        <input class="fitb-input" id="fitb-${idx}" placeholder="Type your answer…" />
+        <button class="btn-check" id="fitb-btn-${idx}" onclick="checkFITB(${idx})">Check ✓</button>
+      </div>`;
+      // also allow Enter key
+    }
+
+    card.innerHTML = `
+      <div class="q-header">
+        <div class="q-number">${idx + 1}</div>
+        <div>
+          <div class="q-type-badge ${typeBadge}">${typeLabel}</div>
+          <div class="q-text">${q.question}</div>
+        </div>
+      </div>
+      ${body}
+      <div class="feedback" id="feedback-${idx}"></div>
+    `;
+    container.appendChild(card);
+
+    // Enter key for FITB
+    if (q.type === 'fitb') {
+      setTimeout(() => {
+        const inp = $(`fitb-${idx}`);
+        if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') checkFITB(idx); });
+      }, 0);
+    }
+  });
+
+  // Scroll to quiz
+  $('quizSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  ANSWER CHECKING
+// ══════════════════════════════════════════════════════════════════════
+function checkAnswer(idx, chosen, btn) {
+  const q = quizQuestions[idx];
+  const correct = q.answer.toLowerCase();
+  const isRight = chosen.toLowerCase() === correct;
+
+  // Disable all options
+  const card = $(`qcard-${idx}`);
+  card.querySelectorAll('.option-btn').forEach(b => {
+    b.disabled = true;
+    const val  = b.textContent.replace(/^[A-D]\s+/, '').toLowerCase().trim();
+    if (val === correct) b.classList.add('correct');
+  });
+  if (!isRight) btn.classList.add('wrong');
+
+  showFeedback(idx, isRight, q);
+  recordAnswer(isRight);
+}
+
+function checkFITB(idx) {
+  const q   = quizQuestions[idx];
+  const inp = $(`fitb-${idx}`);
+  const btn = $(`fitb-btn-${idx}`);
+  if (!inp || inp.disabled) return;
+
+  const userAns = inp.value.trim().toLowerCase();
+  const correct = q.answer.toLowerCase();
+  const isRight = userAns === correct
+    || correct.includes(userAns)
+    || userAns.includes(correct);
+
+  inp.disabled = true;
+  btn.disabled = true;
+  inp.style.borderColor = isRight ? 'var(--success)' : 'var(--danger)';
+
+  showFeedback(idx, isRight, q);
+  recordAnswer(isRight);
+}
+
+function showFeedback(idx, isRight, q) {
+  const fb = $(`feedback-${idx}`);
+  fb.style.display = 'block';
+  if (isRight) {
+    fb.className = 'feedback correct';
+    fb.textContent = '✅ Correct! ' + (q.originalSentence ? `Context: "${trimSentence(q.originalSentence)}"` : '');
+  } else {
+    fb.className = 'feedback wrong';
+    fb.textContent = `❌ Incorrect. The correct answer is: "${q.answer}"${q.explanation ? ' — ' + q.explanation : ''}`;
+  }
+}
+
+function recordAnswer(isRight) {
+  answeredCount++;
+  if (isRight) correctCount++;
+  if (answeredCount === quizQuestions.length) showScore();
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  SCORE CARD
+// ══════════════════════════════════════════════════════════════════════
+function showScore() {
+  const pct   = Math.round((correctCount / quizQuestions.length) * 100);
+  const circle = $('scoreCircle');
+  circle.className = 'score-circle ' + (pct >= 70 ? 'great' : pct >= 40 ? 'ok' : 'poor');
+  $('scoreNum').textContent = `${pct}%`;
+  $('scoreHeading').textContent = pct >= 70 ? '🎉 Great job!' : pct >= 40 ? '👍 Not bad!' : '📖 Keep studying!';
+  $('scoreMsg').textContent = `You got ${correctCount} out of ${quizQuestions.length} questions correct.`;
+  $('scoreCard').style.display = 'block';
+  $('scoreCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function restartQuiz() {
+  $('quizSection').style.display   = 'none';
+  $('scoreCard').style.display     = 'none';
+  extractedText = '';
+  allSentences  = [];
+  quizQuestions = [];
+  answeredCount = correctCount = 0;
+  $('generateBtn').disabled = true;
+  $('statsBar').style.display = 'none';
+  $('uploadTitle').textContent = 'Drop your PDF here, or click to browse';
+  $('uploadSub').textContent   = 'Supports any text-based PDF · Max size 20 MB';
+  $('pdfInput').value = '';
+  setStatus('Upload a PDF to get started.', false);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  UTILS
+// ══════════════════════════════════════════════════════════════════════
+function shuffleArr(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+</script>
+</body>
+</html>
