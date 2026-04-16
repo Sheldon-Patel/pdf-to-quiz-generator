@@ -29,5 +29,3 @@ To achieve "intelligence" without a Large Language Model, we use:
 2. Open [index.html](cci:7://file:///Users/ronnierodricks/.gemini/antigravity/scratch/pdf-to-quiz/index.html:0:0-0:0) in any modern web browser (Chrome, Firefox, Safari).
 3. Upload a text-based PDF and generate your quiz!
 
-## 📜 Presentation Tip for Judges
-*"We prove that efficiency doesn't always require massive models. By combining 1970s mathematical information theory (TF-IDF) with modern rule-based grammar analysis, we created a fully offline learning tool that is faster and more privacy-secure than an LLM-based wrapper."*
